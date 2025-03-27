@@ -84,4 +84,71 @@ def main():
             ¡Bienvenido!  
             Actualmente, <span style='color:red;'>estamos en construcción</span> para clasificar imágenes.
             Pasos:
-            1. Sele
+            1. Selecciona el modelo que deseas usar en la parte izquierda  
+            2. Sube la imagen  
+            3. Verás la predicción para ella
+        """, unsafe_allow_html=True)
+
+    # Configuraciones en la barra lateral
+    with st.sidebar:
+        st.header("Configuraciones")
+        _ = st.selectbox(
+            "Modelo a Utilizar:",
+            Disp_Models,
+            help="Selecciona el modelo de CNN (simulación)."
+        )
+
+    # Carga de la imagen
+    with st.container():
+        image_file = st.file_uploader("Cargar Imagen", type=Images_types)
+
+    if image_file is not None:
+        with st.spinner('Procesando imagen...'):
+            # Cargar la imagen con PIL y asegurar RGB
+            image = Image.open(image_file).convert("RGB")
+            img_size = Images_size
+
+            # Transformaciones: redimensionar y convertir a tensor
+            streamlit_transforms = transforms.Compose([
+                transforms.Resize((img_size, img_size)),
+                transforms.ToTensor()
+                # Si durante el entrenamiento usaste normalización, añádela aquí:
+                # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+
+            # Crear un Dataset y DataLoader para la imagen cargada
+            streamlit_data = CustomImageDataset(image, transform=streamlit_transforms)
+            streamlit_loader = DataLoader(streamlit_data, batch_size=1, shuffle=False)
+
+        # --- Cargar el modelo guardado y clasificar la imagen ---
+        with st.spinner('Cargando el modelo y clasificando la imagen...'):
+            model_path = "models/mi_modelo.pt"  # Ruta del modelo guardado
+            if not os.path.exists(model_path):
+                st.error("No se encontró el modelo guardado en: " + model_path)
+                return
+
+            # Inicializar el modelo; en este ejemplo usamos ResNet18 como base.
+            # Si usaste otra arquitectura (p.ej., ResNeXt101), cámbiala aquí.
+            base_model = models.resnet18(pretrained=False)
+            model = CNN(base_model, num_classes)
+            # Cargar pesos en CPU para mayor compatibilidad
+            model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu")))
+            model.eval()
+
+            # Realizar la inferencia
+            with torch.no_grad():
+                for img, _ in streamlit_loader:
+                    outputs = model(img)
+                    _, top_class = torch.max(outputs, dim=1)
+                    predicted_label = top_class.item()
+                    class_name = classnames[predicted_label]
+                    prob = outputs[0][predicted_label].item()
+
+        # Mostrar el resultado
+        st.success(f'### Clase predicha: {class_name} (Confianza: {round(prob, 5)})')
+        st.image(image, caption='Imagen cargada', use_container_width=True)
+    else:
+        st.info("Por favor, carga una imagen para realizar la clasificación.")
+
+if __name__ == "__main__":
+    main()
